@@ -24,3 +24,14 @@ venv/
 # Ignore system files
 .DS_Store
 Thumbs.db
+# Ignore specific text files
+All_Cards.txt
+Program Explanation.docx
+cards part 2 v1.txt
+directory_structure.txt
+evans cards.txt
+~$ogram Explanation.docx
+
+# Ignore hidden system files
+.DS_Store
+Thumbs.db
