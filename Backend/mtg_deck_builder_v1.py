@@ -537,14 +537,6 @@ def is_valid_card_for_deck(card, commander_colors, format_type="commander"):
     - Not being a token or emblem
     - Color identity strictly matching commander
     - Proper handling of MDFCs (Modal Double-Faced Cards)
-    
-    Args:
-        card: Card data dictionary
-        commander_colors: List of commander color identities
-        format_type: Format to check legality against (default: commander)
-        
-    Returns:
-        bool: Whether the card is valid for the deck
     """
     if not card:
         return False
@@ -568,14 +560,31 @@ def is_valid_card_for_deck(card, commander_colors, format_type="commander"):
             print(f"❌ Failed to parse legality JSON for {card.get('name', 'Unknown')} - Marking as illegal.")
             return False
 
-    # Debugging: Print the actual legality data to check if it's formatted correctly
-    print(f"✅ Checking legality for {card.get('name', 'Unknown')} - Legalities: {legalities}")
-
     # Format-specific legality check
     is_legal = legalities.get(format_type, 'not_legal')
-    if is_legal and is_legal.lower() == 'legal':  # Convert to lowercase for comparison
-        return True
-
+    if not (is_legal and is_legal.lower() == 'legal'):  # Convert to lowercase for comparison
+        return False
+        
+    # Check color identity if commander_colors is provided
+    if commander_colors:
+        card_color_identity = set(card.get('color_identity', []))
+        commander_color_set = set(commander_colors)
+        
+        # Basic land exception
+        if card.get('name') in ["Plains", "Island", "Swamp", "Mountain", "Forest"]:
+            basic_map = {"Plains": ["W"], "Island": ["U"], "Swamp": ["B"], "Mountain": ["R"], "Forest": ["G"]}
+            card_color = basic_map.get(card.get('name'), [])
+            return any(c in commander_color_set for c in card_color)
+            
+        # For all other cards, check if card's color identity is a subset of commander's colors
+        if not card_color_identity.issubset(commander_color_set):
+            skipped_cards.append({
+                'name': card.get('name', 'Unknown Card'),
+                'reason': f'Color identity {card_color_identity} not compatible with commander colors {commander_colors}',
+            })
+            return False
+    
+    return True
 def is_singleton_legal(card, selected_cards, allow_basic_lands=True):
     """
     Checks if adding this card would violate singleton rules.
@@ -1165,13 +1174,16 @@ def select_lands(available_lands, required_count, deck_colors, commander=None, a
         name = land.get('name', '')
         oracle_text = land.get('oracle_text', '').lower() if land.get('oracle_text') else ''
         
-        # Basic land handling
+        # Basic land handling - make this more strict
         if name in ["Plains", "Island", "Swamp", "Mountain", "Forest"]:
-            return name == "Plains" if 'W' in deck_colors else \
-                   name == "Island" if 'U' in deck_colors else \
-                   name == "Swamp" if 'B' in deck_colors else \
-                   name == "Mountain" if 'R' in deck_colors else \
-                   name == "Forest" if 'G' in deck_colors else False
+            basic_map = {
+                "Plains": "W" in deck_colors,
+                "Island": "U" in deck_colors,
+                "Swamp": "B" in deck_colors,
+                "Mountain": "R" in deck_colors,
+                "Forest": "G" in deck_colors
+            }
+            return basic_map[name]
         
         # Mono-color specific handling
         if len(deck_colors) == 1:
@@ -1188,11 +1200,20 @@ def select_lands(available_lands, required_count, deck_colors, commander=None, a
             ]
             
             has_utility = any(effect in oracle_text for effect in utility_effects)
-            return produces_color or has_utility
+            
+            # Strict color identity check for mono-color
+            land_colors = set(land.get('color_identity', []))
+            color_valid = land_colors.issubset(set(deck_colors))
+            
+            return (produces_color or has_utility) and color_valid
         
-        # Multi-color handling
+        # Multi-color handling with strict color identity check
         land_colors = set(land.get('color_identity', []))
-        return land_colors.issubset(set(deck_colors))
+        if not land_colors.issubset(set(deck_colors)):
+            print(f"DEBUG: Skipping land {name} - colors {land_colors} not subset of {deck_colors}")
+            return False
+            
+        return True
     
     valid_lands = [land for land in available_lands if is_valid_land(land)]
     
@@ -1600,6 +1621,8 @@ def build_deck(categories, commander=None, partner_commander=None, deck_size=Non
     if partner_commander:
         commander_colors.update(partner_commander.get('color_identity', []))
     commander_colors = list(commander_colors)
+    
+    print(f"DEBUG: Commander colors detected: {commander_colors}")
     
     # Initialize deck size and requirements
     if commander:

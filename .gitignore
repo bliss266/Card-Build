@@ -35,3 +35,6 @@ evans cards.txt
 # Ignore hidden system files
 .DS_Store
 Thumbs.db
+# Ignore SQLite temporary files
+*.sqlite-shm
+*.sqlite-wal
